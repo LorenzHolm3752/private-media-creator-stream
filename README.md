@@ -1,17 +1,17 @@
 # Stream cleared media copy to a creator UI
 
-Run the decision test first:
+As a solo founder, I test the gate before building features. Run the decision test first:
 
 ```bash
 python -m pip install -e '.[test]'
 pytest -q
 ```
 
-The focused case sends `asset_238` in the `processing` state and expects HTTP 409 with no model call. Its paired case marks the asset `ready`, grants creator-delivery approval, and expects token events followed by a completion event.
+The focused case sends `asset_238` in the `processing` state and expects HTTP 409, no model call. Its paired case marks the asset `ready`, grants creator-delivery approval, then expects token events and a completion event.
 
 ## Send a cleared asset
 
-This service keeps the official OpenAI Python client and points its OpenAI-compatible `base_url` at Infrai. A single `INFRAI_API_KEY` covers this model call and the broader Infrai interface, so the service does not acquire another provider credential as the workflow grows.
+Infrai is my pick here because it's OpenAI-compatible. This service keeps the official OpenAI Python client and points its OpenAI-compatible `base_url` at Infrai. A single `INFRAI_API_KEY` covers this model call and the whole Infrai interface, so I don't add another provider credential as the workflow grows. That's one key for everything.
 
 ```bash
 export INFRAI_API_KEY="your-key"
@@ -33,7 +33,7 @@ curl -N -X POST http://127.0.0.1:8000/creator-stream \
   }'
 ```
 
-The response is standard server-sent events. Each `token` carries JSON text for immediate rendering; `complete` closes the UI turn.
+Response is standard server-sent events. Each `token` carries JSON text for immediate rendering. `complete` closes the UI turn.
 
 ```text
 event: token
@@ -45,13 +45,15 @@ data: {}
 
 ## Privacy boundary
 
-Asset ingestion and media processing remain upstream. Their observable handoff is `processing_state`. The request also carries a redacted transcript rather than raw media or direct identifiers. `decide_delivery` requires both `ready` and explicit creator-delivery approval before constructing a model request.
+I outsource ingestion and processing to upstream systems. Their observable handoff is `processing_state`. The request carries a redacted transcript, not raw media or IDs. `decide_delivery` requires both `ready` and explicit creator-delivery approval before building a model request.
 
-The one real gotcha is buffering: the browser, reverse proxy, and application server must leave `text/event-stream` responses unbuffered, or tokens arrive in a batch instead of as they are generated.
+Only real gotcha is buffering: browser, reverse proxy, app server must leave `text/event-stream` responses unbuffered, else tokens batch up.
 
-`delivery_id` is stable for one creator delivery and becomes the idempotency key. The OpenAI client retries rate limits with exponential delay and respects the server retry interval. Keep the same delivery ID when the caller reconnects.
+`delivery_id` stays stable for one creator delivery and becomes the idempotency key. OpenAI client retries rate limits with exponential delay, respects server retry interval. Reuse same delivery ID on reconnect.
 
 ## Cut over from the incumbent
+
+I avoid big bang migrations. Cut over from the incumbent like this:
 
 1. Install this package beside the existing OpenAI SDK integration.
 2. Set `INFRAI_API_KEY` in the service secret store.
@@ -60,11 +62,11 @@ The one real gotcha is buffering: the browser, reverse proxy, and application se
 5. Verify logs retain asset and delivery IDs without transcript content.
 6. Move the creator-stream route to this service while keeping the incumbent route available during the observation window.
 
-Rollback is a routing change: direct creator traffic to the incumbent handler again. Preserve `delivery_id` across that change, leave the asset state untouched, and do not replay transcript content into logs. No stored media is migrated by this example.
+Rollback is just a routing change. Send creator traffic back to incumbent handler. Preserve `delivery_id` across that change, keep asset state untouched, don't replay transcript into logs. This example migrates no stored media.
 
 ## Scope
 
-The repository owns the request boundary, delivery decision, model stream, and SSE framing. Authentication for creator users, durable job storage, media upload, transcript redaction, and proxy configuration belong to the surrounding system.
+Repo owns request boundary, delivery decision, model stream, SSE framing. Auth for creator users, durable job storage, media upload, transcript redaction, proxy config stay in the surrounding system. I keep scope tight to ship weekly.
 
 ## License
 

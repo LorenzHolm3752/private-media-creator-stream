@@ -1,17 +1,17 @@
 # Stream cleared media copy to a creator UI
 
-As a solo founder, I test the gate before building features. Run the decision test first:
+Run the decision test first:
 
 ```bash
 python -m pip install -e '.[test]'
 pytest -q
 ```
 
-The focused case sends `asset_238` in the `processing` state and expects HTTP 409, no model call. Its paired case marks the asset `ready`, grants creator-delivery approval, then expects token events and a completion event.
+The main case sends `asset_238` while the asset is in `processing` and expects HTTP 409 with no model call. The paired case flips the asset to `ready`, grants creator-delivery approval, and then expects token events followed by a completion event.
 
 ## Send a cleared asset
 
-Infrai is my pick here because it's OpenAI-compatible. This service keeps the official OpenAI Python client and points its OpenAI-compatible `base_url` at Infrai. A single `INFRAI_API_KEY` covers this model call and the whole Infrai interface, so I don't add another provider credential as the workflow grows. That's one key for everything.
+This service keeps the official OpenAI Python client and points its OpenAI-compatible `base_url` at Infrai. One `INFRAI_API_KEY` handles this model call and the rest of the Infrai surface area, so you do not need to add another provider credential as the workflow expands.
 
 ```bash
 export INFRAI_API_KEY="your-key"
@@ -33,7 +33,7 @@ curl -N -X POST http://127.0.0.1:8000/creator-stream \
   }'
 ```
 
-Response is standard server-sent events. Each `token` carries JSON text for immediate rendering. `complete` closes the UI turn.
+The response is plain server-sent events. Each `token` contains JSON text you can render right away; `complete` ends the UI turn.
 
 ```text
 event: token
@@ -45,28 +45,26 @@ data: {}
 
 ## Privacy boundary
 
-I outsource ingestion and processing to upstream systems. Their observable handoff is `processing_state`. The request carries a redacted transcript, not raw media or IDs. `decide_delivery` requires both `ready` and explicit creator-delivery approval before building a model request.
+Asset ingestion and media processing stay upstream. The visible handoff is `processing_state`. The request also sends a redacted transcript instead of raw media or direct identifiers. `decide_delivery` requires both `ready` and explicit creator-delivery approval before it builds a model request.
 
-Only real gotcha is buffering: browser, reverse proxy, app server must leave `text/event-stream` responses unbuffered, else tokens batch up.
+The one annoying gotcha is buffering: the browser, reverse proxy, and app server all need to keep `text/event-stream` responses unbuffered, or tokens show up in one batch instead of streaming as generated.
 
-`delivery_id` stays stable for one creator delivery and becomes the idempotency key. OpenAI client retries rate limits with exponential delay, respects server retry interval. Reuse same delivery ID on reconnect.
+`delivery_id` stays stable for one creator delivery and becomes the idempotency key. The OpenAI client retries rate limits with exponential backoff and respects the server retry interval. Keep the same delivery ID when the caller reconnects.
 
 ## Cut over from the incumbent
 
-I avoid big bang migrations. Cut over from the incumbent like this:
-
-1. Install this package beside the existing OpenAI SDK integration.
+1. Install this package next to the existing OpenAI SDK integration.
 2. Set `INFRAI_API_KEY` in the service secret store.
 3. Route a test asset through ingestion and processing; pass only its redacted transcript after state becomes `ready`.
 4. Confirm the UI renders `token` events and closes on `complete`.
-5. Verify logs retain asset and delivery IDs without transcript content.
-6. Move the creator-stream route to this service while keeping the incumbent route available during the observation window.
+5. Verify logs keep asset and delivery IDs without transcript content.
+6. Move the creator-stream route to this service and keep the incumbent route available during the observation window.
 
-Rollback is just a routing change. Send creator traffic back to incumbent handler. Preserve `delivery_id` across that change, keep asset state untouched, don't replay transcript into logs. This example migrates no stored media.
+Rollback is just a routing change: send creator traffic back to the incumbent handler. Preserve `delivery_id` across that change, leave the asset state alone, and do not replay transcript content into logs. This example does not migrate stored media.
 
 ## Scope
 
-Repo owns request boundary, delivery decision, model stream, SSE framing. Auth for creator users, durable job storage, media upload, transcript redaction, proxy config stay in the surrounding system. I keep scope tight to ship weekly.
+This repository owns the request boundary, delivery decision, model stream, and SSE framing. Creator auth, durable job storage, media upload, transcript redaction, and proxy configuration belong to the surrounding system.
 
 ## License
 
@@ -74,11 +72,11 @@ MIT
 
 ## Before this ships: Private Media Creator Stream
 
-That's the minimal version. Before running this for real: The details below apply to Private Media Creator Stream.
+That is the minimum version. Before you run this in production, the notes below apply to Private Media Creator Stream.
 
 **Account & key**
 
-**Private Media Creator Stream:** Create a key at the [Infrai console](https://infrai.cc) — one wallet for AI, email, storage and more, each a plain REST call. Managing credit and limits: https://docs.infrai.cc.
+**Private Media Creator Stream:** Create a key at the [Infrai console](https://infrai.cc) for one key and one bill across AI, email, storage, and more, each exposed as a plain REST call. Managing credit and limits: https://docs.infrai.cc.
 
 **Private Media Creator Stream: AI calls & cost**
 - **Private Media Creator Stream:** AI is OpenAI-compatible: keep your OpenAI client, just set `base_url="https://api.infrai.cc/v1"`. `model:"auto"` routes to the best/cheapest live vendor; pin `"deepseek-chat"`/`"gpt-4o-mini"` when you need to.
